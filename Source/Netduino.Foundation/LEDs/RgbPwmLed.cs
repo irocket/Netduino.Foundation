@@ -1,8 +1,8 @@
 using System;
-using Microsoft.SPOT;
 using H = Microsoft.SPOT.Hardware;
-using N = SecretLabs.NETMF.Hardware.Netduino;
 using System.Threading;
+using System.Collections;
+using Microsoft.SPOT;
 
 namespace Netduino.Foundation.LEDs
 {
@@ -15,6 +15,13 @@ namespace Netduino.Foundation.LEDs
     /// </summary>
     public class RgbPwmLed
     {
+        protected class RunningColorsConfig
+        {
+            public ArrayList Colors { get; set; }
+            public int[] Durations { get; set; }
+            public bool Loop { get; set; }
+        }
+
         public bool IsCommonCathode { get; protected set; }
         public H.Cpu.PWMChannel RedPin { get; protected set; }
         public H.PWM RedPwm { get; protected set; }
@@ -25,7 +32,7 @@ namespace Netduino.Foundation.LEDs
 
 
         // TODO: this should be based on voltage drop so it can be used with or without resistors.
-        protected double dutyCycleMax = .3; // RGB Led doesn't seem to get much brighter than at 30%
+        protected double dutyCycleMax = 0.3; // RGB Led doesn't seem to get much brighter than at 30%
 
         protected float _maximumRedPwmDuty = 1;
         protected float _maximumGreenPwmDuty = 1;
@@ -35,16 +42,17 @@ namespace Netduino.Foundation.LEDs
         public float BlueForwardVoltage { get; protected set; }
 
         protected Thread _animationThread = null;
+        protected bool _isRunning = false;
+        protected RunningColorsConfig _runningColorConfig = null;
 
         /// <summary>
         /// The Color the LED has been set to.
         /// </summary>
         public Color Color
         {
-            get { return this._color; }
+            get { return _color; }
         } protected Color _color = new Color(0, 0, 0);
-        
-        
+
         /// <summary>
         /// 
         /// Implementation notes: Architecturally, it would be much cleaner to construct this class
@@ -66,54 +74,61 @@ namespace Netduino.Foundation.LEDs
             // validate and persist forward voltages
             if (redLedForwardVoltage < 0 || redLedForwardVoltage > 3.3F) {
                 throw new ArgumentOutOfRangeException("redLedForwardVoltage", "error, forward voltage must be between 0, and 3.3");
-            } this.RedForwardVoltage = redLedForwardVoltage;
+            } RedForwardVoltage = redLedForwardVoltage;
             if (greenLedForwardVoltage < 0 || greenLedForwardVoltage > 3.3F) {
                 throw new ArgumentOutOfRangeException("greenLedForwardVoltage", "error, forward voltage must be between 0, and 3.3");
-            } this.GreenForwardVoltage = greenLedForwardVoltage;
+            } GreenForwardVoltage = greenLedForwardVoltage;
             if (blueLedForwardVoltage < 0 || blueLedForwardVoltage > 3.3F) {
                 throw new ArgumentOutOfRangeException("blueLedForwardVoltage", "error, forward voltage must be between 0, and 3.3");
-            } this.BlueForwardVoltage = blueLedForwardVoltage;
+            } BlueForwardVoltage = blueLedForwardVoltage;
             // calculate and set maximum PWM duty cycles
-            this._maximumRedPwmDuty = Helpers.CalculateMaximumDutyCycle(RedForwardVoltage);
-            this._maximumGreenPwmDuty = Helpers.CalculateMaximumDutyCycle(GreenForwardVoltage);
-            this._maximumBluePwmDuty = Helpers.CalculateMaximumDutyCycle(BlueForwardVoltage);
+            _maximumRedPwmDuty = Helpers.CalculateMaximumDutyCycle(RedForwardVoltage);
+            _maximumGreenPwmDuty = Helpers.CalculateMaximumDutyCycle(GreenForwardVoltage);
+            _maximumBluePwmDuty = Helpers.CalculateMaximumDutyCycle(BlueForwardVoltage);
 
-            this.IsCommonCathode = isCommonCathode;
-            this.RedPin = redPin;
-            this.GreenPin = greenPin;
-            this.BluePin = bluePin;
+            IsCommonCathode = isCommonCathode;
+            RedPin = redPin;
+            GreenPin = greenPin;
+            BluePin = bluePin;
 
-            this.RedPwm = new Microsoft.SPOT.Hardware.PWM(this.RedPin, 100, 0, false);
-            this.GreenPwm = new Microsoft.SPOT.Hardware.PWM(this.GreenPin, 100, 0, false);
-            this.BluePwm = new Microsoft.SPOT.Hardware.PWM(this.BluePin, 100, 0, false);
+            RedPwm = new H.PWM(RedPin, 100, 0, !isCommonCathode);
+            GreenPwm = new H.PWM(GreenPin, 100, 0, !isCommonCathode);
+            BluePwm = new H.PWM(BluePin, 100, 0, !isCommonCathode);
         }
 
         /// <summary>
         /// Sets the current color of the LED.
         /// </summary>
-        public void SetColor(Color color)
+        /// 
+        public void SetColor(Color color, int duration = 0)
         {
-            this._color = color;
-
-            // set the color based on the RGB values
-            RedPwm.DutyCycle = (this._color.R * _maximumRedPwmDuty);
-            GreenPwm.DutyCycle = (this._color.G * _maximumGreenPwmDuty);
-            BluePwm.DutyCycle = (this._color.B * _maximumBluePwmDuty);
-
-            if(IsCommonCathode == false)
+            if (duration <= 0)
             {
-                RedPwm.DutyCycle = 1 - RedPwm.DutyCycle;
-                GreenPwm.DutyCycle = 1 - GreenPwm.DutyCycle;
-                BluePwm.DutyCycle = 1 - BluePwm.DutyCycle;
-            }
+                _runningColorConfig = null;
+                Stop();
 
-            // start our PWMs.
-            this.RedPwm.Start();
-            this.GreenPwm.Start();
-            this.BluePwm.Start();
+                UpdateColor(color);
+            }
+            else
+            {
+                StartRunningColors(GetFadeConfig(_color, color, duration));
+            }
         }
 
-        // HACK/TODO: this is the signature i want, but it's broken until 4.4. (https://github.com/NETMF/netmf-interpreter/issues/87)
+        void UpdateColor(Color color)
+        {
+            _color = color;
+
+            // set the color based on the RGB values
+            RedPwm.DutyCycle = (_color.R * _maximumRedPwmDuty);
+            GreenPwm.DutyCycle = (_color.G * _maximumGreenPwmDuty);
+            BluePwm.DutyCycle = (_color.B * _maximumBluePwmDuty);
+
+            // start our PWMs.
+            TurnOn();
+        }
+
+        // HACK/TODO: this is the signature I want, but it's broken until 4.4. (https://github.com/NETMF/netmf-interpreter/issues/87)
         // using arraylist for now
         //public void StartRunningColors(Color[] colors, int[] durations, bool loop)
         /// <summary>
@@ -123,35 +138,84 @@ namespace Netduino.Foundation.LEDs
         /// <param name="colors"></param>
         /// <param name="durations"></param>
         /// <param name="loop"></param>
-        public void StartRunningColors(System.Collections.ArrayList colors, int[] durations, bool loop = true)
+        /// 
+        public void StartRunningColors(ArrayList colors, int[] durations, bool loop = true)
         {
+            _runningColorConfig = new RunningColorsConfig()
+            {
+                Colors = colors,
+                Durations = durations,
+                Loop = loop
+            };
+
+            if (_isRunning)
+            {
+                Stop();
+                return;
+            }
+
             if (durations.Length != 1 && colors.Count != durations.Length)
             {
                 throw new Exception("durations must either have a count of 1, if they're all the same, or colors and durations arrays must be same length.");
             }
 
-            // stop any existing animations
-            this.Stop();
-            this._animationThread = new Thread(() => {
-                while (loop)
+            int count = 0;
+            if(_animationThread != null)
+            {
+                while (_animationThread.IsAlive && count < 10)
                 {
-                    for (int i = 0; i < colors.Count; i++)
-                    {
-                        this.SetColor((Color)colors[i]);
-                        // if all the same, use [0], otherwise individuals
-                        Thread.Sleep((durations.Length == 1) ? durations[0] : durations[i]);
-                    }
+                    Thread.Sleep(100);
+                    count++;
+                }
+            }
+
+            if (count == 10)
+                return;
+
+            _animationThread = new Thread(() => 
+            {
+                while(_runningColorConfig != null)
+                {
+                    var nextColors = _runningColorConfig.Colors;
+                    var nextDurations = _runningColorConfig.Durations;
+                    var nextLoop = _runningColorConfig.Loop;
+                    _runningColorConfig = null;
+
+                    _isRunning = true;
+                    AnimateColors(nextColors, nextDurations, nextLoop);
                 }
             });
-            this._animationThread.Start();
+            _animationThread.Start();
+        }
+
+        private void StartRunningColors(RunningColorsConfig config)
+        {
+            StartRunningColors(config.Colors, config.Durations, config.Loop);
+        }
+
+        private void AnimateColors (ArrayList colors, int[] durations, bool loop)
+        {
+            while (_isRunning)
+            {
+                for (int i = 0; i < colors.Count; i++)
+                {
+                    if (_isRunning == false)
+                        break;
+
+                    UpdateColor((Color)colors[i]);
+                    // if all the same, use [0], otherwise individuals
+                    Thread.Sleep((durations.Length == 1) ? durations[0] : durations[i]);
+                }
+
+                if (!loop)
+                    Stop();
+            }
         }
 
         // consider removing
         public void StartAlternatingColors(Color colorOne, Color colorTwo, int colorOneDuration, int colorTwoDuration)
         {
-            System.Collections.ArrayList foo = new System.Collections.ArrayList{ colorOne, colorTwo };
-
-            this.StartRunningColors(new System.Collections.ArrayList { colorOne, colorTwo }, new int[] { colorOneDuration, colorTwoDuration });
+            StartRunningColors(new ArrayList { colorOne, colorTwo }, new int[] { colorOneDuration, colorTwoDuration });
         }
 
         /// <summary>
@@ -176,8 +240,7 @@ namespace Netduino.Foundation.LEDs
             var highColor = Color.FromHsba(color.Hue, color.Saturation, highBrightness);
             var lowColor = Color.FromHsba(color.Hue, color.Saturation, lowBrightness);
 
-            this.StartRunningColors(new System.Collections.ArrayList { highColor, lowColor }, new int[] { highDuration, lowDuration });
-            //this.StartAlternate(highColor, lowColor, highDuration, lowDuration);
+            StartRunningColors(new ArrayList { highColor, lowColor }, new int[] { highDuration, lowDuration });
         }
 
         /// <summary>
@@ -187,54 +250,107 @@ namespace Netduino.Foundation.LEDs
         {
             if (highBrightness > 1 || highBrightness <= 0)
             {
-                throw new ArgumentOutOfRangeException("highBrightness", "highBrightness must be > 0 and <= 1");
+                throw new ArgumentOutOfRangeException("highBrightness", "highBrightness must be between 0 and 1");
             }
+
             if (lowBrightness >= 1 || lowBrightness < 0)
             {
-                throw new ArgumentOutOfRangeException("lowBrightness", "lowBrightness must be >= 0 and < 1");
+                throw new ArgumentOutOfRangeException("lowBrightness", "lowBrightness must be between 0 and 1");
             }
+
             if (lowBrightness >= highBrightness)
             {
                 throw new Exception("lowBrightness must be less than highbrightness");
             }
 
+            StartRunningColors(GetPulseConfig(color, pulseDuration, highBrightness, lowBrightness));
+        }
+
+        RunningColorsConfig GetFadeConfig (Color colorStart, Color colorEnd, int duration)
+        {
+            int interval = 60; // 60 miliseconds is probably the fastest update we want to do, given that threads are given 20 miliseconds by default. 
+            int steps = duration / interval;
+
+            var colors = new ArrayList();
+
+            for (int i = 0; i < steps; i++)
+            {
+                double r = colorStart.R * (steps - i) / steps + colorEnd.R * i / steps;
+                double g = colorStart.G * (steps - i) / steps + colorEnd.G * i / steps;
+                double b = colorStart.B * (steps - i) / steps + colorEnd.B * i / steps;
+
+                colors.Add(Color.FromRgb(r, g, b));
+            } // walk down (start at penultimate to not repeat, and finish at 1
+
+            colors.Add(colorEnd);    
+
+            return new RunningColorsConfig()
+            {
+                Colors = colors,
+                Durations = new int[] { interval },
+                Loop = false
+            };
+        }
+
+        RunningColorsConfig GetPulseConfig (Color color, int pulseDuration, float highBrightness, float lowBrightness)
+        {
             // precalculate the colors to keep the loop tight
-            float brightness = lowBrightness;
-            int intervalTime = 60; // 60 miliseconds is probably the fastest update we want to do, given that threads are given 20 miliseconds by default. 
-            int steps = pulseDuration / intervalTime;
+            int interval = 60; // 60 miliseconds is probably the fastest update we want to do, given that threads are given 20 miliseconds by default. 
+            int steps = pulseDuration / interval;
             float brightnessIncrement = (highBrightness - lowBrightness) / steps;
 
             // array of colors we'll walk up and down
             float brightnessStep;
-            System.Collections.ArrayList colors = new System.Collections.ArrayList();
-            Color[] colorsAscending = new Color[steps];
+            var colors = new ArrayList();
 
             // walk up
             for (int i = 0; i < steps; i++)
             {
                 brightnessStep = lowBrightness + (brightnessIncrement * i);
-                //colorsAscending[i] = Color.FromHsba(this._color.Hue, this._color.Saturation, brightnessStep);
                 colors.Add(Color.FromHsba(color.Hue, color.Saturation, brightnessStep));
             } // walk down (start at penultimate to not repeat, and finish at 1
-            for (int i = (steps - 2); i > 0; i--)
+
+            for (int i = steps - 2; i > 0; i--)
             {
                 brightnessStep = lowBrightness + (brightnessIncrement * i);
                 colors.Add(Color.FromHsba(color.Hue, color.Saturation, brightnessStep));
             }
 
-            this.StartRunningColors(colors, new int[] { intervalTime });
+            return new RunningColorsConfig()
+            {
+                Colors = colors,
+                Durations = new int[] { interval },
+                Loop = true
+            };
         }
+
 
         /// <summary>
         /// Stops any running animations.
         /// </summary>
         public void Stop()
         {
-            if (this._animationThread != null)
-            {
-                this._animationThread.Abort();
-                this.SetColor(new Color(0));
-            }
+            _isRunning = false;
+        }
+
+        /// <summary>
+        /// Turns off the LED
+        /// </summary>
+        public void TurnOff()
+        {
+            RedPwm.Stop();
+            GreenPwm.Stop();
+            BluePwm.Stop();
+        }
+
+        /// <summary>
+        /// Turns on the LED
+        /// </summary>
+        public void TurnOn()
+        {
+            RedPwm.Start();
+            GreenPwm.Start();
+            BluePwm.Start();
         }
     }
 }

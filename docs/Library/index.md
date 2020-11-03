@@ -13,6 +13,7 @@ Netduino.Foundation has two sets of peripheral drivers; the ones listed in the f
 
 | Peripheral                | Description                         |
 |---------------------------|-------------------------------------|
+| [Led](/API/LEDs/Led)            | Simple LED. |
 | [PwmLed](/API/LEDs/PwmLed)            | Pulse-Width-Modulation powered LED. |
 | [RgbPwmLed](/API/LEDs/RgbPwmLed)      | Pulse-Width-Modulation powered RGB LED. |
 
@@ -43,6 +44,7 @@ Netduino.Foundation has two sets of peripheral drivers; the ones listed in the f
 | Peripheral                | Description                         |
 |---------------------------|-------------------------------------|
 | [SpstSwitch](/API/Sensors/Switches/SpstSwitch)      | A simple single-pole, single-throw (SPST), switch. |
+| [SpdtSwitch](/API/Sensors/Switches/SpdtSwitch)        | A two position single-pole, dual-throw (SPDT), switch. |
 | [DipSwitch](/API/Sensors/Switches/DipSwitch)        | A multi-pole dip switch. |
 
 ### Temperature
@@ -78,7 +80,7 @@ Netduino.Foundation has two sets of peripheral drivers; the ones listed in the f
 |---------------------------|-------------------------------------|
 | [BME280](/Library/Sensors/Atmospheric/BME280)      | Combined I2C/SPI temperature, humidity, and pressure sensor. |
 | BMP085                    | In development |
-| DS18B20                   | In development |
+| [DS18B20](/Library/Sensors/Temperature/DS18B20)    |  Temperature sensor with 9-12 bit resolution with a range of -55 to 125 C. |
 | GroveTH02                 | In development |
 | [HIH6130](/Library/Sensors/Atmospheric/HIH6130)    | Combined I2C temperature and humidity sensor. |
 | HTU21DF                   | In development |
@@ -92,6 +94,8 @@ Netduino.Foundation has two sets of peripheral drivers; the ones listed in the f
 
 | Peripheral                | Description                         |
 |---------------------------|-------------------------------------|
+| [HCSR04](/Library/Sensors/Distance/HCSR04) | HCSR04 distance sensor. |
+| [HYSRF05](/Library/Sensors/Distance/HYSRF05) | HYSRF05 distance sensor. |
 | SharpGP2D12               | In Development |
 
 ### GPS Sensors & Libraries
@@ -123,17 +127,15 @@ Netduino.Foundation has two sets of peripheral drivers; the ones listed in the f
 | MPU6050                   | In Development |
 | [Parallax PIR](/Library/Sensors/Motion/ParallaxPIR)| Parallax PIR Rev B digital motion detector. |
 
-
-## Shields
+### Shields
 
 | Peripheral                | Description                         |
 |---------------------------|-------------------------------------|
 | Adafruit Motor Shield     | In Development |
 | SparkFun Weather Shield   | In Development |
 
-## Servos
+### Servos
 
 | Peripheral                | Description                         |
 |---------------------------|-------------------------------------|
-| [ServoCore](/Library/Servos/Servo)                | Generic servo library. |
-
+| [ServoCore](/Library/ServoCore/)                | Generic servo library. |
